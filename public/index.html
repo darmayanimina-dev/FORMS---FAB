@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FORMS - FAB OPEX</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans p-4 max-w-lg mx-auto min-h-screen">
+  
+  <div class="text-center my-4">
+    <div class="inline-block p-3 bg-blue-100 text-blue-700 rounded-2xl mb-2 text-2xl">📑</div>
+    <h1 class="text-2xl font-black tracking-tight text-slate-900">FORMS</h1>
+    <p class="text-xs font-semibold text-blue-700 uppercase tracking-wider">FAB OPEX Reconciliation & Monitoring System</p>
+    <p class="text-xs text-slate-400 italic mt-0.5">"Fast, Accurate, and Accessible OPEX Insights."</p>
+  </div>
+
+  <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mt-4">
+    <label class="block text-xs font-bold text-slate-600 mb-2">PILIH FILE OPEX (.PDF / .TXT)</label>
+    <input type="file" id="fileInput" accept=".pdf,.txt" class="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"/>
+    <button onclick="uploadFile()" id="btnProcess" class="w-full mt-3 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-sm transition shadow-sm">
+      Proses Data
+    </button>
+  </div>
+
+  <div id="loading" class="hidden text-center py-8 text-sm font-semibold text-slate-500 animate-pulse">
+    Memproses laporan secara dinamis...
+  </div>
+
+  <div id="result" class="hidden mt-5 space-y-4">
+    <div class="grid grid-cols-2 gap-3">
+      <div class="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Total Akun Unik</span>
+        <div id="kpiAccounts" class="text-lg font-black text-slate-800 mt-0.5">0</div>
+      </div>
+      <div class="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Total OPEX</span>
+        <div id="kpiTotal" class="text-lg font-black text-blue-600 mt-0.5">Rp 0</div>
+      </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+      <h3 class="text-xs font-bold text-slate-700 mb-3">📈 Top 5 Beban OPEX Terbesar</h3>
+      <canvas id="chartTop5" height="200"></canvas>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+      <div class="mb-3">
+        <label class="text-[11px] font-bold text-slate-500">Nama Periode:</label>
+        <input type="text" id="periodInput" class="w-full border rounded-lg p-1.5 text-xs font-semibold text-slate-700 mt-1">
+      </div>
+      <button onclick="downloadPdf()" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2">
+        📄 Download PDF Rekap
+      </button>
+      <button onclick="downloadExcel()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2">
+        📊 Download Excel Detail
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let globalData = null;
+    let chartInstance = null;
+
+    async function uploadFile() {
+      const fileInput = document.getElementById('fileInput');
+      if (!fileInput.files[0]) return alert("Silakan pilih file PDF/teks terlebih dahulu!");
+
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+
+      document.getElementById('loading').classList.remove('hidden');
+      document.getElementById('result').classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/process', { method: 'POST', body: formData });
+        const data = await res.json();
+        document.getElementById('loading').classList.add('hidden');
+
+        if (!res.ok) return alert(data.error || "Gagal memproses file.");
+
+        globalData = data;
+        document.getElementById('result').classList.remove('hidden');
+        document.getElementById('kpiAccounts').innerText = data.account_count + " Akun";
+        document.getElementById('kpiTotal').innerText = "Rp " + data.grand_total.toLocaleString('id-ID');
+        document.getElementById('periodInput').value = data.period;
+
+        renderChart(data.summary.slice(0, 5));
+      } catch (err) {
+        document.getElementById('loading').classList.add('hidden');
+        alert("Terjadi kesalahan koneksi server.");
+      }
+    }
+
+    function renderChart(top5) {
+      const ctx = document.getElementById('chartTop5').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: top5.map(d => d["Account Name"].length > 15 ? d["Account Name"].substring(0, 15) + '...' : d["Account Name"]),
+          datasets: [{
+            data: top5.map(d => d["Total Saldo"]),
+            backgroundColor: '#2563eb',
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { ticks: { callback: v => (v/1000000) + ' jt' } }
+          }
+        }
+      });
+    }
+
+    async function downloadExcel() {
+      const form = new FormData();
+      form.append('data_json', JSON.stringify(globalData.detail));
+      form.append('period', document.getElementById('periodInput').value);
+
+      const res = await fetch('/api/download/excel', { method: 'POST', body: form });
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Detail Realisasi OPEX - ${document.getElementById('periodInput').value}.xlsx`;
+      a.click();
+    }
+
+    async function downloadPdf() {
+      const form = new FormData();
+      form.append('summary_json', JSON.stringify(globalData.summary));
+      form.append('grand_total', globalData.grand_total);
+      form.append('period', document.getElementById('periodInput').value);
+
+      const res = await fetch('/api/download/pdf', { method: 'POST', body: form });
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Rekap Realisasi OPEX - ${document.getElementById('periodInput').value}.pdf`;
+      a.click();
+    }
+  </script>
+</body>
+</html>
